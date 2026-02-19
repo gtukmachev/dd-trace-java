@@ -18,7 +18,7 @@ public final class ThrowableInstrumentation extends InstrumenterModule.Profiling
 
   @Override
   public boolean isEnabled() {
-    return Platform.hasJfr() && super.isEnabled();
+    return Platform.hasJfr() && !Platform.isNativeImageBuilder() && super.isEnabled();
   }
 
   @Override

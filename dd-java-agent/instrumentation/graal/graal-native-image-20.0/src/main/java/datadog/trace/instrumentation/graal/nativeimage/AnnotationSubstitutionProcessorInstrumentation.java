@@ -34,42 +34,9 @@ public final class AnnotationSubstitutionProcessorInstrumentation
     public static void onExit(@Advice.Return(readOnly = false) List<Class<?>> result) {
       result.add(Target_com_datadog_profiling_agent_ProcessContext.class);
       result.add(Target_datadog_jctools_util_UnsafeRefArrayAccess.class);
-
-      // Only register JMXFetch substitutions if JMXFetch is actually present on the classpath.
-      // Load reflectively to prevent GraalVM's annotation processor from discovering the
-      // @TargetClass annotations when JMXFetch is absent (e.g. native-image smoke tests).
-      if (isJmxFetchPresent()) {
-        try {
-          ClassLoader cl = FindTargetClassesAdvice.class.getClassLoader();
-          result.add(
-              Class.forName(
-                  "datadog.trace.instrumentation.graal.nativeimage.Target_org_datadog_jmxfetch_App",
-                  false,
-                  cl));
-          result.add(
-              Class.forName(
-                  "datadog.trace.instrumentation.graal.nativeimage.Target_org_datadog_jmxfetch_Status",
-                  false,
-                  cl));
-          result.add(
-              Class.forName(
-                  "datadog.trace.instrumentation.graal.nativeimage.Target_org_datadog_jmxfetch_reporter_JsonReporter",
-                  false,
-                  cl));
-        } catch (ClassNotFoundException e) {
-          // Substitution classes not available, skip them
-        }
-      }
-    }
-
-    private static boolean isJmxFetchPresent() {
-      try {
-        Class.forName(
-            "org.datadog.jmxfetch.App", false, FindTargetClassesAdvice.class.getClassLoader());
-        return true;
-      } catch (ClassNotFoundException e) {
-        return false;
-      }
+      result.add(Target_org_datadog_jmxfetch_App.class);
+      result.add(Target_org_datadog_jmxfetch_Status.class);
+      result.add(Target_org_datadog_jmxfetch_reporter_JsonReporter.class);
     }
   }
 }
