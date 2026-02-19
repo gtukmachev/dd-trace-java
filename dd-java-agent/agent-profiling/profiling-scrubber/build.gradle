@@ -6,7 +6,12 @@ minimumBranchCoverage = 0.0
 dependencies {
   api libs.slf4j
 
-  implementation libs.jafar.parser
+  implementation(libs.jafar.tools) {
+    // ASM is only used by jafar's CodeGenerator/Deserializer path which the scrubber does not use
+    exclude group: 'org.ow2.asm', module: 'asm'
+    // Agent has its own slf4j binding
+    exclude group: 'org.slf4j', module: 'slf4j-simple'
+  }
 
   testImplementation libs.bundles.junit5
   testImplementation libs.bundles.mockito

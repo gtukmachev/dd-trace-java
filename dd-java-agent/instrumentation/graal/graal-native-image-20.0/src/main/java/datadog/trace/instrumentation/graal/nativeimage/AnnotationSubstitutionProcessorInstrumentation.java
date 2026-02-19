@@ -36,8 +36,8 @@ public final class AnnotationSubstitutionProcessorInstrumentation
       result.add(Target_datadog_jctools_util_UnsafeRefArrayAccess.class);
 
       // Only register JMXFetch substitutions if JMXFetch is actually present on the classpath.
-      // We must load these classes reflectively (not using .class literals) to prevent
-      // them from being discovered by GraalVM's annotation processor when JMXFetch is not present.
+      // Load reflectively to prevent GraalVM's annotation processor from discovering the
+      // @TargetClass annotations when JMXFetch is absent (e.g. native-image smoke tests).
       if (isJmxFetchPresent()) {
         try {
           ClassLoader cl = FindTargetClassesAdvice.class.getClassLoader();

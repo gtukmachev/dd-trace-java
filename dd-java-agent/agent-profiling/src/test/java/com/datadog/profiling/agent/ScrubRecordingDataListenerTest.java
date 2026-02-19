@@ -50,7 +50,7 @@ class ScrubRecordingDataListenerTest {
   @Test
   void delegatesScrubbedData() throws Exception {
     ScrubRecordingDataListener listener =
-        new ScrubRecordingDataListener(delegate, scrubber, tempDir, false);
+        new ScrubRecordingDataListener(delegate, scrubber, false, tempDir);
 
     listener.onNewData(RecordingType.CONTINUOUS, mockData, false);
 
@@ -70,7 +70,7 @@ class ScrubRecordingDataListenerTest {
     when(mockData.getPath()).thenReturn(existingFile);
 
     ScrubRecordingDataListener listener =
-        new ScrubRecordingDataListener(delegate, scrubber, tempDir, false);
+        new ScrubRecordingDataListener(delegate, scrubber, false, tempDir);
 
     listener.onNewData(RecordingType.CONTINUOUS, mockData, false);
 
@@ -91,7 +91,7 @@ class ScrubRecordingDataListenerTest {
         .scrubFile(any(Path.class), any(Path.class));
 
     ScrubRecordingDataListener listener =
-        new ScrubRecordingDataListener(delegate, scrubber, tempDir, false);
+        new ScrubRecordingDataListener(delegate, scrubber, false, tempDir);
 
     listener.onNewData(RecordingType.CONTINUOUS, mockData, false);
 
@@ -106,7 +106,7 @@ class ScrubRecordingDataListenerTest {
         .scrubFile(any(Path.class), any(Path.class));
 
     ScrubRecordingDataListener listener =
-        new ScrubRecordingDataListener(delegate, scrubber, tempDir, true);
+        new ScrubRecordingDataListener(delegate, scrubber, true, tempDir);
 
     listener.onNewData(RecordingType.CONTINUOUS, mockData, false);
 
@@ -117,7 +117,7 @@ class ScrubRecordingDataListenerTest {
   @Test
   void cleansTempFilesOnSuccess() throws Exception {
     ScrubRecordingDataListener listener =
-        new ScrubRecordingDataListener(delegate, scrubber, tempDir, false);
+        new ScrubRecordingDataListener(delegate, scrubber, false, tempDir);
 
     listener.onNewData(RecordingType.CONTINUOUS, mockData, false);
 

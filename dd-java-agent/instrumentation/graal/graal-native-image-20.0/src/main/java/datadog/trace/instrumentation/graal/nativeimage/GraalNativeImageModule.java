@@ -27,6 +27,7 @@ public class GraalNativeImageModule extends AbstractNativeImageModule {
     return new String[] {
       "jdk.vm.ci.meta.ResolvedJavaType",
       "jdk.vm.ci.meta.ResolvedJavaField",
+      packageName + ".AnnotationSubstitutionProcessorInstrumentation$FindTargetClassesAdvice",
       // ignore helper class names as usual
       packageName + ".Target_com_datadog_profiling_agent_ProcessContext",
       packageName + ".Target_datadog_jctools_util_UnsafeRefArrayAccess",

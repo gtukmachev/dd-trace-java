@@ -7,9 +7,11 @@ import datadog.trace.api.profiling.RecordingData;
 import datadog.trace.api.profiling.RecordingDataListener;
 import datadog.trace.api.profiling.RecordingInputStream;
 import datadog.trace.api.profiling.RecordingType;
+import datadog.trace.util.TempLocationManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import javax.annotation.Nonnull;
 import org.slf4j.Logger;
@@ -22,18 +24,32 @@ import org.slf4j.LoggerFactory;
  */
 final class ScrubRecordingDataListener implements RecordingDataListener {
   private static final Logger log = LoggerFactory.getLogger(ScrubRecordingDataListener.class);
+  private static final Path SCRUB_SUBDIR = Paths.get("scrub");
 
   private final RecordingDataListener delegate;
   private final JfrScrubber scrubber;
-  private final Path tempDir;
   private final boolean failOpen;
+  private final Path tempDirOverride;
 
   ScrubRecordingDataListener(
-      RecordingDataListener delegate, JfrScrubber scrubber, Path tempDir, boolean failOpen) {
+      RecordingDataListener delegate, JfrScrubber scrubber, boolean failOpen) {
+    this(delegate, scrubber, failOpen, null);
+  }
+
+  // visible for testing
+  ScrubRecordingDataListener(
+      RecordingDataListener delegate, JfrScrubber scrubber, boolean failOpen, Path tempDir) {
     this.delegate = delegate;
     this.scrubber = scrubber;
-    this.tempDir = tempDir;
     this.failOpen = failOpen;
+    this.tempDirOverride = tempDir;
+  }
+
+  private Path getTempDir() {
+    if (tempDirOverride != null) {
+      return tempDirOverride;
+    }
+    return TempLocationManager.getInstance().getTempDir(SCRUB_SUBDIR);
   }
 
   @Override
@@ -41,12 +57,15 @@ final class ScrubRecordingDataListener implements RecordingDataListener {
     Path tempInput = null;
     Path tempOutput = null;
     try {
+      Path tempDir = getTempDir();
       // Use the existing file path when available (eg. ddprof), otherwise materialize the stream
       Path inputPath = data.getPath();
 
       if (inputPath == null) {
         tempInput = Files.createTempFile(tempDir, "dd-scrub-in-", ".jfr");
-        Files.copy(data.getStream(), tempInput, StandardCopyOption.REPLACE_EXISTING);
+        try (RecordingInputStream in = data.getStream()) {
+          Files.copy(in, tempInput, StandardCopyOption.REPLACE_EXISTING);
+        }
         inputPath = tempInput;
       }
 

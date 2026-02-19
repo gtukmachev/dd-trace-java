@@ -8,12 +8,10 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.function.Function;
+import java.util.Collections;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.openjdk.jmc.common.item.IItemCollection;
-import org.openjdk.jmc.common.item.IItemIterable;
 import org.openjdk.jmc.flightrecorder.JfrLoaderToolkit;
 
 class JfrScrubberTest {
@@ -35,47 +33,21 @@ class JfrScrubberTest {
 
   @Test
   void scrubInitialSystemPropertyValues() throws Exception {
-    Function<String, JfrScrubber.ScrubField> definition =
-        name -> {
-          if ("jdk.InitialSystemProperty".equals(name)) {
-            return new JfrScrubber.ScrubField(null, "value", (k, v) -> true);
-          }
-          return null;
-        };
-
-    JfrScrubber scrubber = new JfrScrubber(definition);
+    JfrScrubber scrubber = DefaultScrubDefinition.create(null);
     Path outputFile = tempDir.resolve("output.jfr");
     scrubber.scrubFile(inputFile, outputFile);
 
     assertTrue(Files.exists(outputFile));
-    assertTrue(Files.size(outputFile) > 0);
-
-    // Parse the scrubbed output and verify values are replaced with 'x' characters
-    IItemCollection events = JfrLoaderToolkit.loadEvents(outputFile.toFile());
-    boolean foundEvent = false;
-    for (IItemIterable items : events) {
-      String typeName = items.getType().getIdentifier();
-      if ("jdk.InitialSystemProperty".equals(typeName)) {
-        if (items.getItemCount() > 0) {
-          foundEvent = true;
-        }
-      }
-    }
-    // The key assertion is that the file is valid and parseable after scrubbing
     assertTrue(Files.size(outputFile) > 0, "Scrubbed file should not be empty");
+
+    // Verify the scrubbed file is valid and parseable
+    JfrLoaderToolkit.loadEvents(outputFile.toFile());
   }
 
   @Test
   void scrubWithNoMatchingEvents() throws Exception {
-    Function<String, JfrScrubber.ScrubField> definition =
-        name -> {
-          if ("nonexistent.EventType".equals(name)) {
-            return new JfrScrubber.ScrubField(null, "value", (k, v) -> true);
-          }
-          return null;
-        };
-
-    JfrScrubber scrubber = new JfrScrubber(definition);
+    // Scrubber with all default events excluded — nothing matches
+    JfrScrubber scrubber = new JfrScrubber(name -> null);
     Path outputFile = tempDir.resolve("output.jfr");
     scrubber.scrubFile(inputFile, outputFile);
 
@@ -85,14 +57,13 @@ class JfrScrubberTest {
 
   @Test
   void scrubWithExcludedEventType() throws Exception {
-    // Create a definition that scrubs nothing
-    Function<String, JfrScrubber.ScrubField> definition = name -> null;
-
-    JfrScrubber scrubber = new JfrScrubber(definition);
+    // Exclude jdk.InitialSystemProperty from scrubbing
+    JfrScrubber scrubber =
+        DefaultScrubDefinition.create(Collections.singletonList("jdk.InitialSystemProperty"));
     Path outputFile = tempDir.resolve("output.jfr");
     scrubber.scrubFile(inputFile, outputFile);
 
-    // Output should be identical to input
-    assertEquals(Files.size(inputFile), Files.size(outputFile));
+    assertTrue(Files.exists(outputFile));
+    assertTrue(Files.size(outputFile) > 0);
   }
 }
