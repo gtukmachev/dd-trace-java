@@ -18,7 +18,12 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface AgentSpan
-    extends MutableSpan, ImplicitContextKeyed, Context, IGSpanInfo, WithAgentSpan {
+    extends MutableSpan,
+        AppendableSpanLinks,
+        ImplicitContextKeyed,
+        Context,
+        IGSpanInfo,
+        WithAgentSpan {
 
   /**
    * Extracts the span from context.
@@ -91,6 +96,9 @@ public interface AgentSpan
 
   @Override
   AgentSpan setMetric(CharSequence key, long value);
+
+  @Override
+  AgentSpan setMetric(CharSequence key, float value);
 
   @Override
   AgentSpan setMetric(CharSequence key, double value);

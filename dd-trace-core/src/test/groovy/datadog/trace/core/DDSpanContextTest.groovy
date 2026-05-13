@@ -5,6 +5,8 @@ import datadog.trace.api.DDTraceId
 import datadog.trace.bootstrap.instrumentation.api.AgentSpanContext
 import datadog.trace.bootstrap.instrumentation.api.ErrorPriorities
 import datadog.trace.bootstrap.instrumentation.api.ProfilingContextIntegration
+import datadog.trace.bootstrap.instrumentation.api.ServiceNameSources
+import datadog.trace.bootstrap.instrumentation.api.Tags
 import datadog.trace.common.writer.ListWriter
 import datadog.trace.core.propagation.ExtractedContext
 import datadog.trace.core.test.DDCoreSpecification
@@ -35,7 +37,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "null values for tags delete existing tags"() {
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .withSpanType("fakeType")
@@ -58,15 +60,15 @@ class DDSpanContextTest extends DDCoreSpecification {
 
     where:
     name                 | tags
-    DDTags.SERVICE_NAME  | ["some.tag": "asdf", (DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id]
-    DDTags.RESOURCE_NAME | ["some.tag": "asdf", (DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id]
-    DDTags.SPAN_TYPE     | ["some.tag": "asdf", (DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id]
-    "some.tag"           | [(DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id]
+    DDTags.SERVICE_NAME  | ["some.tag": "asdf", (DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id, (DDTags.DD_SVC_SRC): ServiceNameSources.MANUAL]
+    DDTags.RESOURCE_NAME | ["some.tag": "asdf", (DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id, (DDTags.DD_SVC_SRC): ServiceNameSources.MANUAL]
+    DDTags.SPAN_TYPE     | ["some.tag": "asdf", (DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id, (DDTags.DD_SVC_SRC): ServiceNameSources.MANUAL]
+    "some.tag"           | [(DDTags.THREAD_NAME): Thread.currentThread().name, (DDTags.THREAD_ID): Thread.currentThread().id, (DDTags.DD_SVC_SRC): ServiceNameSources.MANUAL]
   }
 
   def "special tags set certain values"() {
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .withSpanType("fakeType")
@@ -80,7 +82,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
     then:
     def thread = Thread.currentThread()
-    assertTagmap(context.getTags(), [(DDTags.THREAD_NAME): thread.name, (DDTags.THREAD_ID): thread.id])
+    assertTagmap(context.getTags(), [(DDTags.THREAD_NAME): thread.name, (DDTags.THREAD_ID): thread.id, (DDTags.DD_SVC_SRC): ServiceNameSources.MANUAL])
     context."$method" == value
 
     where:
@@ -92,7 +94,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "tags can be added to the context"() {
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .withSpanType("fakeType")
@@ -109,7 +111,8 @@ class DDSpanContextTest extends DDCoreSpecification {
     assertTagmap(context.getTags(), [
       (name)               : value,
       (DDTags.THREAD_NAME) : thread.name,
-      (DDTags.THREAD_ID)   : thread.id
+      (DDTags.THREAD_ID)   : thread.id,
+      (DDTags.DD_SVC_SRC): ServiceNameSources.MANUAL
     ])
 
     where:
@@ -123,14 +126,14 @@ class DDSpanContextTest extends DDCoreSpecification {
   def "metrics use the expected types"() {
     // floats should be converted to doubles.
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .start()
     def context = span.context()
 
     when:
-    context.setMetric("test", value)
+    context.setMetric("test", (Number)value)
 
     then:
     type.isInstance(context.getTag("test"))
@@ -155,7 +158,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "force keep really keeps the trace"() {
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .start()
@@ -185,10 +188,10 @@ class DDSpanContextTest extends DDCoreSpecification {
     def extracted = new ExtractedContext(DDTraceId.from(123), 456, SAMPLER_KEEP, "789", tracer.getPropagationTagsFactory().empty(), DATADOG)
       .withRequestContextDataAppSec("dummy")
 
-    def top = tracer.buildSpan("top").asChildOf((AgentSpanContext) extracted).start()
+    def top = tracer.buildSpan("datadog", "top").asChildOf((AgentSpanContext) extracted).start()
     def topC = (DDSpanContext) top.context()
     def topTS = top.getRequestContext().getTraceSegment()
-    def current = tracer.buildSpan("current").asChildOf(top).start()
+    def current = tracer.buildSpan("datadog", "current").asChildOf(top).start()
     def currentTS = current.getRequestContext().getTraceSegment()
     def currentC = (DDSpanContext) current.context()
 
@@ -215,7 +218,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "set single span sampling tags"() {
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .start()
@@ -245,7 +248,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "setting resource name to null is ignored"() {
     setup:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .start()
@@ -259,7 +262,7 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "setting operation name triggers constant encoding"() {
     when:
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .start()
@@ -291,13 +294,13 @@ class DDSpanContextTest extends DDCoreSpecification {
 
   def "Span IDs printed as unsigned long"() {
     setup:
-    def parent = tracer.buildSpan("fakeOperation")
+    def parent = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .withSpanId(-987654321)
       .start()
 
-    def span = tracer.buildSpan("fakeOperation")
+    def span = tracer.buildSpan("datadog", "fakeOperation")
       .withServiceName("fakeService")
       .withResourceName("fakeResource")
       .withSpanId(-123456789)
@@ -310,6 +313,26 @@ class DDSpanContextTest extends DDCoreSpecification {
     // even though span ID and parent ID are setup as negative numbers, they should be printed as their unsigned value
     // asserting there is no negative sign after ids is the best I can do.
     context.toString().contains("id=-") == false
+  }
+
+  def "service name source is propagated from parent to child span"() {
+    setup:
+    def parent = tracer.buildSpan("datadog", "parentOperation")
+      .withServiceName("fakeService")
+      .start()
+
+    when:
+    def child = tracer.buildSpan("datadog", "childOperation")
+      .asChildOf(parent.context())
+      .start()
+    def childContext = child.context() as DDSpanContext
+
+    then:
+    childContext.getServiceNameSource() == ServiceNameSources.MANUAL
+
+    cleanup:
+    child.finish()
+    parent.finish()
   }
 
   static void assertTagmap(Map source, Map comparison, boolean removeThread = false) {
@@ -329,5 +352,118 @@ class DDSpanContextTest extends DDCoreSpecification {
       sourceWithoutCommonTags.remove(DDTags.THREAD_NAME)
     }
     assert sourceWithoutCommonTags == comparison
+  }
+
+  def "span kind ordinal constants and SPAN_KIND_VALUES array stay in sync"() {
+    expect: "SPAN_KIND_VALUES array covers all ordinals"
+    DDSpanContext.SPAN_KIND_VALUES.length == DDSpanContext.SPAN_KIND_CUSTOM + 1
+
+    and: "each known ordinal maps to the correct Tags constant"
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_SERVER] == Tags.SPAN_KIND_SERVER
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_CLIENT] == Tags.SPAN_KIND_CLIENT
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_PRODUCER] == Tags.SPAN_KIND_PRODUCER
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_CONSUMER] == Tags.SPAN_KIND_CONSUMER
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_INTERNAL] == Tags.SPAN_KIND_INTERNAL
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_BROKER] == Tags.SPAN_KIND_BROKER
+
+    and: "UNSET and CUSTOM map to null"
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_UNSET] == null
+    DDSpanContext.SPAN_KIND_VALUES[DDSpanContext.SPAN_KIND_CUSTOM] == null
+  }
+
+  def "setSpanKindOrdinal round-trips with SPAN_KIND_VALUES for all known kinds"() {
+    when:
+    def span = tracer.buildSpan("test", "test").start()
+    def context = (DDSpanContext) span.context()
+    context.setSpanKindOrdinal(kindString)
+
+    then:
+    context.getSpanKindOrdinal() == expectedOrdinal
+    DDSpanContext.SPAN_KIND_VALUES[expectedOrdinal] == kindString
+
+    cleanup:
+    span.finish()
+
+    where:
+    kindString             | expectedOrdinal
+    Tags.SPAN_KIND_SERVER  | DDSpanContext.SPAN_KIND_SERVER
+    Tags.SPAN_KIND_CLIENT  | DDSpanContext.SPAN_KIND_CLIENT
+    Tags.SPAN_KIND_PRODUCER | DDSpanContext.SPAN_KIND_PRODUCER
+    Tags.SPAN_KIND_CONSUMER | DDSpanContext.SPAN_KIND_CONSUMER
+    Tags.SPAN_KIND_INTERNAL | DDSpanContext.SPAN_KIND_INTERNAL
+    Tags.SPAN_KIND_BROKER  | DDSpanContext.SPAN_KIND_BROKER
+  }
+
+  def "setTag and getTag round-trip for span.kind"() {
+    when:
+    def span = tracer.buildSpan("test", "test").start()
+    span.setTag(Tags.SPAN_KIND, kindString)
+
+    then:
+    span.getTag(Tags.SPAN_KIND) == kindString
+
+    cleanup:
+    span.finish()
+
+    where:
+    kindString << [
+      Tags.SPAN_KIND_SERVER,
+      Tags.SPAN_KIND_CLIENT,
+      Tags.SPAN_KIND_PRODUCER,
+      Tags.SPAN_KIND_CONSUMER,
+      Tags.SPAN_KIND_INTERNAL,
+      Tags.SPAN_KIND_BROKER,
+    ]
+  }
+
+  def "getTag returns null when span.kind is not set"() {
+    when:
+    def span = tracer.buildSpan("test", "test").start()
+
+    then:
+    span.getTag(Tags.SPAN_KIND) == null
+
+    cleanup:
+    span.finish()
+  }
+
+  def "setTag then removeTag clears span.kind"() {
+    when:
+    def span = tracer.buildSpan("test", "test").start()
+    span.setTag(Tags.SPAN_KIND, kindString)
+
+    then:
+    span.getTag(Tags.SPAN_KIND) == kindString
+
+    when:
+    ((DDSpan) span).context().removeTag(Tags.SPAN_KIND)
+
+    then:
+    span.getTag(Tags.SPAN_KIND) == null
+
+    cleanup:
+    span.finish()
+
+    where:
+    kindString << [
+      Tags.SPAN_KIND_SERVER,
+      Tags.SPAN_KIND_CLIENT,
+      Tags.SPAN_KIND_PRODUCER,
+      Tags.SPAN_KIND_CONSUMER,
+      Tags.SPAN_KIND_INTERNAL,
+      Tags.SPAN_KIND_BROKER,
+    ]
+  }
+
+  def "setTag with custom span.kind falls back to tag map"() {
+    when:
+    def span = tracer.buildSpan("test", "test").start()
+    span.setTag(Tags.SPAN_KIND, "custom-kind")
+
+    then:
+    span.getTag(Tags.SPAN_KIND) == "custom-kind"
+
+    cleanup:
+    span.finish()
   }
 }

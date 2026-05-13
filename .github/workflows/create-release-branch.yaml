@@ -1,4 +1,4 @@
-name: Create Release Branch
+name: Create Release Branch and Pin System Tests
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
           TAG=${{ steps.determine-tag.outputs.tag }}
           echo "branch=release/${TAG%.0}.x" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout dd-trace-java at tag
+      - name: Check out repo at tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
         with:
           ref: ${{ steps.determine-tag.outputs.tag }}
@@ -69,13 +69,13 @@ jobs:
       contents: write
       id-token: write # required for OIDC token federation
     steps:
-      - uses: DataDog/dd-octo-sts-action@acaa02eee7e3bb0839e4272dacb37b8f3b58ba80 # v1.0.3
+      - uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # v1.0.4
         id: octo-sts
         with:
           scope: DataDog/dd-trace-java
           policy: self.pin-system-tests.create-pr
 
-      - name: Checkout dd-trace-java at release branch
+      - name: Check out repo at release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
         with:
           ref: ${{ needs.create-release-branch.outputs.release-branch-name }}
@@ -85,7 +85,7 @@ jobs:
         run: |
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Define pin-system-tests branch name
+      - name: Define pin-system-tests branch name from date
         id: define-pin-branch
         run: echo "branch=ci/pin-system-tests-$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
 
@@ -115,22 +115,19 @@ jobs:
           fi
       
       - name: Commit changes
-        id: create-commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: Pin system-tests for release branch" .github/workflows/run-system-tests.yaml
-          echo "commit=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          git commit -m "chore: Pin system-tests for release branch" .github/workflows/run-system-tests.yaml .gitlab-ci.yml
       
       - name: Push changes
-        uses: DataDog/commit-headless@05d7b7ee023e2c7d01c47832d420c2503cd416f3 # action/v2.0.3
+        uses: DataDog/commit-headless@ad3668640012ec69186398f43d61923f6878bbbe # action/v3.2.0
         with:
           token: "${{ steps.octo-sts.outputs.token }}"
           branch: "${{ steps.define-pin-branch.outputs.branch }}"
           head-sha: "${{ steps.get-latest-commit-sha.outputs.sha }}"
           create-branch: true
           command: push
-          commits: "${{ steps.create-commit.outputs.commit }}"
 
       - name: Create pull request
         env:

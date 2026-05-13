@@ -14,6 +14,7 @@ import org.gradle.jvm.toolchain.JvmImplementation
 import org.gradle.jvm.toolchain.JvmVendorSpec
 import org.gradle.jvm.toolchain.internal.DefaultToolchainSpec
 import org.gradle.jvm.toolchain.internal.SpecificInstallationToolchainSpec
+import org.gradle.kotlin.dsl.property
 import org.gradle.kotlin.dsl.support.serviceOf
 import java.nio.file.Files
 import java.nio.file.Path
@@ -46,16 +47,15 @@ class TestJvmSpec(val project: Project) {
   val testJvmProperty: Provider<String> = project.providers.gradleProperty(TEST_JVM)
 
   /**
-   * Normalized `stable` string to the highest JAVA_X_HOME found in environment variables.
+   * Normalized `tip` string that's set to the highest JAVA_X_HOME version found in environment variables.
    */
   val normalizedTestJvm: Provider<String> = testJvmProperty.map { testJvm ->
     if (testJvm.isBlank()) {
       throw GradleException("testJvm property is blank")
     }
 
-    // "stable" is calculated as the largest Java version found via toolchains or JAVA_X_HOME
     when (testJvm) {
-      "stable" -> {
+      "tip" -> {
         val javaVersions = discoverJavaVersionsViaToolchains()
           ?: discoverJavaVersionsViaEnvVars()
 
@@ -152,7 +152,7 @@ class TestJvmSpec(val project: Project) {
     project.providers.zip(testJvmSpec, normalizedTestJvm) { jvmSpec, testJvm ->
       // Only change test JVM if it's not the one we are running the gradle build with
       if ((jvmSpec as? SpecificInstallationToolchainSpec)?.javaHome == currentJavaHomePath.get()) {
-        project.providers.provider<JavaLauncher?> { null }
+        project.objects.property<JavaLauncher>()
       } else {
         // The provider always says that a value is present so we need to wrap it for proper error messages
         project.javaToolchains.launcherFor(jvmSpec).orElse(project.providers.provider {

@@ -7,6 +7,8 @@ import static datadog.trace.api.DDTags.SPAN_TYPE;
 import static datadog.trace.api.sampling.PrioritySampling.USER_DROP;
 import static datadog.trace.api.sampling.PrioritySampling.USER_KEEP;
 import static datadog.trace.bootstrap.instrumentation.api.InstrumentationTags.SERVLET_CONTEXT;
+import static datadog.trace.bootstrap.instrumentation.api.ServiceNameSources.SPLIT_BY_SERVLET_CONTEXT;
+import static datadog.trace.bootstrap.instrumentation.api.ServiceNameSources.SPLIT_BY_TAGS;
 import static datadog.trace.bootstrap.instrumentation.api.Tags.HTTP_METHOD;
 import static datadog.trace.bootstrap.instrumentation.api.Tags.HTTP_STATUS;
 import static datadog.trace.bootstrap.instrumentation.api.Tags.HTTP_URL;
@@ -108,6 +110,7 @@ public class TagInterceptor {
       case DDTags.MANUAL_KEEP:
       case DDTags.MANUAL_DROP:
       case Tags.ASM_KEEP:
+      case Tags.AI_GUARD_KEEP:
       case Tags.SAMPLING_PRIORITY:
       case Tags.PROPAGATED_TRACE_SOURCE:
       case Tags.PROPAGATED_DEBUG:
@@ -120,6 +123,7 @@ public class TagInterceptor {
       case HTTP_URL:
       case ORIGIN_KEY:
       case MEASURED:
+      case Tags.SPAN_KIND:
         return true;
 
       default:
@@ -155,6 +159,12 @@ public class TagInterceptor {
           return true;
         }
         return false;
+      case Tags.AI_GUARD_KEEP:
+        if (asBoolean(value)) {
+          span.forceKeep(SamplingMechanism.AI_GUARD);
+          return true;
+        }
+        return false;
       case Tags.SAMPLING_PRIORITY:
         return interceptSamplingPriority(span, value);
       case Tags.PROPAGATED_TRACE_SOURCE:
@@ -184,6 +194,11 @@ public class TagInterceptor {
         return interceptOrigin(span, value);
       case MEASURED:
         return interceptMeasured(span, value);
+      case Tags.SPAN_KIND:
+        // Cache the ordinal for fast isOutbound() checks.
+        // Return false so the value is still stored in unsafeTags for serialization.
+        span.setSpanKindOrdinal(String.valueOf(value));
+        return false;
       default:
         return intercept(span, tag, value);
     }
@@ -214,7 +229,7 @@ public class TagInterceptor {
       path = uri == null ? null : uri.getPath();
     }
     if (path != null) {
-      final boolean isClient = Tags.SPAN_KIND_CLIENT.equals(span.unsafeGetTag(Tags.SPAN_KIND));
+      final boolean isClient = Tags.SPAN_KIND_CLIENT.equals(span.getSpanKindString());
       Pair<CharSequence, Byte> normalized =
           isClient
               ? HttpResourceNames.computeForClient(method, path, false)
@@ -230,7 +245,7 @@ public class TagInterceptor {
 
   private boolean intercept(DDSpanContext span, String tag, Object value) {
     if (splitServiceTags.contains(tag)) {
-      span.setServiceName(String.valueOf(value));
+      span.setServiceName(String.valueOf(value), SPLIT_BY_TAGS);
       return true;
     }
     return false;
@@ -340,15 +355,15 @@ public class TagInterceptor {
       String serviceName = null;
       if (contextName.equals("/")) {
         serviceName = Config.get().getRootContextServiceName();
-        span.setServiceName(serviceName, SERVLET_CONTEXT);
+        span.setServiceName(serviceName, SPLIT_BY_SERVLET_CONTEXT);
       } else if (contextName.charAt(0) == '/') {
         if (contextName.length() > 1) {
           serviceName = contextName.substring(1);
-          span.setServiceName(serviceName, SERVLET_CONTEXT);
+          span.setServiceName(serviceName, SPLIT_BY_SERVLET_CONTEXT);
         }
       } else {
         serviceName = contextName;
-        span.setServiceName(serviceName, SERVLET_CONTEXT);
+        span.setServiceName(serviceName, SPLIT_BY_SERVLET_CONTEXT);
       }
       ServiceNameCollector.get().addService(serviceName);
     }

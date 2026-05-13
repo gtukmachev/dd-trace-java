@@ -30,6 +30,7 @@ import datadog.trace.bootstrap.instrumentation.api.AgentPropagation;
 import datadog.trace.bootstrap.instrumentation.api.AgentSpan;
 import datadog.trace.bootstrap.instrumentation.api.AgentSpanContext;
 import datadog.trace.bootstrap.instrumentation.api.AgentTracer;
+import datadog.trace.bootstrap.instrumentation.api.ClientIpAddressData;
 import datadog.trace.bootstrap.instrumentation.api.ErrorPriorities;
 import datadog.trace.bootstrap.instrumentation.api.InternalSpanTypes;
 import datadog.trace.bootstrap.instrumentation.api.ResourceNamePriorities;
@@ -79,6 +80,20 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
 
   private final boolean traceClientIpResolverEnabled =
       Config.get().isTraceClientIpResolverEnabled();
+
+  private final String primaryInstrumentationName;
+
+  protected HttpServerDecorator() {
+    String[] instrumentationNames = instrumentationNames();
+    this.primaryInstrumentationName =
+        instrumentationNames != null && instrumentationNames.length > 0
+            ? instrumentationNames[0]
+            : DEFAULT_INSTRUMENTATION_NAME;
+  }
+
+  protected final String primaryInstrumentationName() {
+    return primaryInstrumentationName;
+  }
 
   protected abstract AgentPropagation.ContextVisitor<REQUEST_CARRIER> getter();
 
@@ -152,11 +167,7 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
    * @return A new context bundling the span, child of the given parent context.
    */
   public Context startSpan(REQUEST_CARRIER carrier, Context parentContext) {
-    String[] instrumentationNames = instrumentationNames();
-    String instrumentationName =
-        instrumentationNames != null && instrumentationNames.length > 0
-            ? instrumentationNames[0]
-            : DEFAULT_INSTRUMENTATION_NAME;
+    String instrumentationName = component().toString();
     AgentSpanContext extracted = getExtractedSpanContext(parentContext);
     // Call IG callbacks
     extracted = callIGCallbackStart(extracted);
@@ -164,6 +175,14 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
     extracted = startInferredProxySpan(parentContext, extracted);
     AgentSpan span =
         tracer().startSpan(instrumentationName, spanName(), extracted).setMeasured(true);
+    // Register service-entry span with inferred proxy span (if present) so that premature
+    // finish calls from child spans (e.g., Spring MVC handler) are deferred until the
+    // service-entry span finishes (after the response status is known).
+    registerServiceEntrySpanInInferredProxy(parentContext, span);
+    // Reset service name inherited from inferred proxy parent: the inferred span uses the
+    // gateway domain name as service name, but the service-entry span should identify
+    // the application (configured DD_SERVICE), not the upstream gateway.
+    resetServiceNameIfUnderInferredProxy(parentContext, span);
     // Apply RequestBlockingAction if any
     Flow<Void> flow = callIGCallbackRequestHeaders(span, carrier);
     if (flow.getAction() instanceof RequestBlockingAction) {
@@ -181,6 +200,20 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
       return extracted;
     }
     return span.start(extracted);
+  }
+
+  private void registerServiceEntrySpanInInferredProxy(
+      Context parentContext, AgentSpan serviceEntrySpan) {
+    InferredProxySpan inferredProxy = InferredProxySpan.fromContext(parentContext);
+    if (inferredProxy != null) {
+      inferredProxy.registerServiceEntrySpan(serviceEntrySpan);
+    }
+  }
+
+  private void resetServiceNameIfUnderInferredProxy(Context parentContext, AgentSpan span) {
+    if (InferredProxySpan.fromContext(parentContext) != null) {
+      span.setServiceName(Config.get().getServiceName());
+    }
   }
 
   private final DataStreamsTransactionTracker.TransactionSourceReader
@@ -216,10 +249,31 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
     }
 
     AgentSpanContext.Extracted extracted = getExtractedSpanContext(parentContext);
-    boolean clientIpResolverEnabled =
+    // Whether to attach IP tags to all requests or not.
+    // This should be enabled if:
+    //   - DD_TRACE_CLIENT_IP_ENABLED=true, or
+    //   - DD_APPSEC_ENABLED=true (or AppSec enabled at runtime)
+    // This applies to tags:
+    //   - http.client_ip (IP resolved from proxy tags)
+    //   - network.client.ip (peer IP)
+    //   - tags with proxy header values
+    // For backwards compatibility, it does not apply to:
+    //   - peer.ipv4
+    //   - peer.ipv6
+    final boolean shouldTagIps =
         config.isClientIpEnabled() || traceClientIpResolverEnabled && APPSEC_ACTIVE;
+    // Whether to stash IP data for later tagging or not.
+    // AI Guard requires client IP tags on the local root span when an ai_guard span is created.
+    // Resolve the IPs eagerly but do not tag the span yet; stash them on the request context so
+    // AIGuardInternal can apply them lazily, only on requests that actually create an ai_guard
+    // span.
+    final boolean shouldStashIps =
+        !shouldTagIps && traceClientIpResolverEnabled && config.isAiGuardEnabled();
+    // Whether to resolve client IP based on proxy headers or no.
+    final boolean shouldResolveIp = shouldTagIps || shouldStashIps;
+
     if (extracted != null) {
-      if (clientIpResolverEnabled) {
+      if (shouldTagIps) {
         String forwarded = extracted.getForwarded();
         if (forwarded != null) {
           span.setTag(Tags.HTTP_FORWARDED, forwarded);
@@ -300,7 +354,7 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
     }
 
     String inferredAddressStr = null;
-    if (clientIpResolverEnabled && extracted != null) {
+    if (shouldResolveIp && extracted != null) {
       InetAddress inferredAddress = ClientIpAddressResolver.resolve(extracted, span);
       // the peer address should be used if:
       // 1. the headers yield nothing, regardless of whether it is public or not
@@ -317,9 +371,11 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
       }
       if (inferredAddress != null) {
         inferredAddressStr = inferredAddress.getHostAddress();
-        span.setTag(Tags.HTTP_CLIENT_IP, inferredAddressStr);
+        if (shouldTagIps) {
+          span.setTag(Tags.HTTP_CLIENT_IP, inferredAddressStr);
+        }
       }
-    } else if (clientIpResolverEnabled && span.getLocalRootSpan() != span) {
+    } else if (shouldTagIps && span.getLocalRootSpan() != span) {
       // in this case extracted == null
       // If there is no extracted we can't do anything but use the peer addr.
       // Additionally, extracted == null arises on subspans for which the resolution
@@ -337,6 +393,15 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
         span.setTag(Tags.PEER_HOST_IPV6, peerIp);
       } else {
         span.setTag(Tags.PEER_HOST_IPV4, peerIp);
+      }
+      if (shouldTagIps) {
+        span.setTag(Tags.NETWORK_CLIENT_IP, peerIp);
+      }
+    }
+    if (shouldStashIps && (peerIp != null || inferredAddressStr != null)) {
+      RequestContext requestContext = span.getRequestContext();
+      if (requestContext != null && requestContext.getClientIpAddressData() == null) {
+        requestContext.setClientIpAddressData(new ClientIpAddressData(peerIp, inferredAddressStr));
       }
     }
     setPeerPort(span, peerPort);
@@ -576,16 +641,24 @@ public abstract class HttpServerDecorator<REQUEST, CONNECTION, RESPONSE, REQUEST
   }
 
   protected void finishInferredProxySpan(Context context) {
-    InferredProxySpan span;
-    if ((span = InferredProxySpan.fromContext(context)) != null) {
-      span.finish();
+    InferredProxySpan inferredProxySpan;
+    if ((inferredProxySpan = InferredProxySpan.fromContext(context)) != null) {
+      inferredProxySpan.finish(AgentSpan.fromContext(context));
     }
   }
 
   private void onRequestEndForInstrumentationGateway(@Nonnull final AgentSpan span) {
-    if (span.getLocalRootSpan() != span) {
+    AgentSpan localRoot = span.getLocalRootSpan();
+
+    // Check if the local root is an inferred proxy span
+    boolean hasInferredProxyParent =
+        localRoot != span && localRoot.getTag("_dd.inferred_span") != null;
+
+    // Only proceed if this is the root span OR if we have an inferred proxy parent
+    if (localRoot != span && !hasInferredProxyParent) {
       return;
     }
+
     CallbackProvider cbp = tracer().getUniversalCallbackProvider();
     RequestContext requestContext = span.getRequestContext();
     if (cbp != null && requestContext != null) {

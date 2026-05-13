@@ -32,8 +32,6 @@ public class DefaultServerConnection38Instrumentation extends InstrumenterModule
   @Override
   public String[] helperClassNames() {
     return new String[] {
-      "datadog.trace.bootstrap.instrumentation.dbm.SharedDBCommenter",
-      "datadog.trace.core.propagation.W3CTraceParent",
       packageName + ".MongoDecorator",
       packageName + ".MongoCommentInjector",
       packageName + ".BsonScrubber",
@@ -72,7 +70,7 @@ public class DefaultServerConnection38Instrumentation extends InstrumenterModule
         return;
       }
 
-      AgentSpan span = startSpan(MongoDecorator.OPERATION_NAME);
+      AgentSpan span = startSpan("java-mongo", MongoDecorator.OPERATION_NAME);
       // scope is going to be closed by the MongoCommandListener
       activateSpanWithoutScope(span);
 
